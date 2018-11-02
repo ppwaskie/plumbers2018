@@ -1,3 +1,27 @@
 \begin{thebibliography}{}
 
+\bibitem[\protect\citeauthoryear{Waskiewicz}{2017}]{xdp-acceleration-2017}
+Peter Waskiewicz Jr, Anjali Singhai Jain, Neerav Parikh, Partha Sarangam
+\newblock 2017.
+\newblock {\em Accelerating XDP Programs Using HW-Based Hints}.
+\newblock https://netdevconf.org/2.2/papers/waskiewicz-xdpacceleration-talk.pdf
+
+\bibitem[\protect\citeauthoryear{Facebook}{2018}]{katran-2018}
+Nikita Shirokov, Ranjeeth Dasineni
+\newblock 2018.
+\newblock {\em Open-sourcing Katran, a scalable network load balancer}.
+\newblock https://code.fb.com/open-source/open-sourcing-katran-a-scalable-network-load-balancer/
+
+\bibitem[\protect\citeauthoryear{Waskiewicz}{2018}]{xdp-patches-2018}
+Jayaprakash Shanmugam, Peter Waskiewicz Jr
+\newblock 2018.
+\newblock {\em i40e: Initial support to add hw hints for xdp}.
+\newblock https://git.kernel.org/pub/scm/linux/kernel/git/jkirsher/next-queue.git/commit/?h=XDP-hints-EXPERIMENTAL
+
+\bibitem[\protect\citeauthoryear{Kafai}{2018}]{btf-patches-2018}
+Martin KaFai Lau
+\newblock 2018.
+\newblock {\em BTF: BPF Type Format}.
+\newblock https://lwn.net/Articles/750695/
+
 \end{thebibliography}
