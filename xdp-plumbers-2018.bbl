@@ -24,4 +24,34 @@ Martin KaFai Lau
 \newblock {\em BTF: BPF Type Format}.
 \newblock https://lwn.net/Articles/750695/
 
+\bibitem[\protect\citeauthoryear{Mahameed}{2018}]{mlx-rx-accel-patches-2018}
+Saeed Mahameed
+\newblock 2018.
+\newblock {\em [RFC bpf-next 0/6] XDP RX device meta data acceleration (WIP)}
+\newblock https://www.spinics.net/lists/netdev/msg509814.html
+
+\bibitem[\protect\citeauthoryear{Mahameed}{2018}]{mlx-rx-infra-patches-2018}
+Saeed Mahameed
+\newblock 2018.
+\newblock {\em [RFC bpf-next 2/6] net: xdp: RX meta data infrastructure}
+\newblock https://www.spinics.net/lists/netdev/msg509820.html
+
+\bibitem[\protect\citeauthoryear{Mahameed}{2018}]{mlx-xdp-meta-patches-2018}
+Saeed Mahameed
+\newblock 2018.
+\newblock {\em Latest patches for xdp meta data and xdp\_tx\_iptunnel}
+\newblock https://git.kernel.org/pub/scm/linux/kernel/git/saeed/linux.git/log/?h=topic/xdp\_metadata
+
+\bibitem[\protect\citeauthoryear{KaFai}{2016}]{xdp-tx-iptunnel-2016}
+Martin KaFai Lau
+\newblock 2016.
+\newblock {\em samples/bpf/xdp\_tx\_iptunnel\_kern.c}
+\newblock https://elixir.bootlin.com/linux/latest/source/samples/bpf/xdp\_tx\_iptunnel\_kern.c
+
+\bibitem[\protect\citeauthoryear{Mahameed}{2018}]{mlx-xdp-tx-iptunnel-2018}
+Saeed Mahameed
+\newblock 2018.
+\newblock {\em Modified samples/bpf/xdp\_tx\_iptunnel\_kern.c}
+\newblock https://git.kernel.org/pub/scm/linux/kernel/git/saeed/linux.git/commit/?h=topic/xdp\_metadata\&id=5f2908515bf64d72684b2bf902acb1a8d9af2d44
+
 \end{thebibliography}

@@ -18,6 +18,7 @@
 \title{Accelerating Real-World XDP Programs Using HW-based Hints}
 \author{Peter P. Waskiewicz Jr. \\ Intel \\ Hillsboro, OR, USA \\ peter.waskiewicz.jr@intel.com
 \And Neerav Parikh \\ Intel \\ Hillsboro, OR, USA \\ neerav.parikh@intel.com
+\And Saeed Mahameed \\ Mellanox \\ San Francisco, CA, USA \\ saeedm@mellanox.com
 \newline
 \newline
 }
@@ -102,7 +103,12 @@ Between the two main tests, each using 4 queues, Type 2 hints and no hints at al
 In the stateless and stateful L4 LB tests, the method of generating the metadata inside the {\small \texttt{xdp\_buff}} struct was to {\small \texttt{memcpy()}} the data into the {\small \texttt{data\_meta}} section of the payload.  This isn’t the most ideal situation, since this can more than certainly cause cache misses, and incur additional overhead while trying to process data.
 \newline
 \newline
-As seen in Figure <insert new figure here>, extrapolation can be done by breaking down cycle counts for the stateful L4 LB tests.  Observing the number of cycles being spent in the i40e driver to synthesize the metadata, and the subsequent {\small \texttt{memcpy()’s}} of information into the {\small \texttt{xdp\_buff}} metadata payload, cycles are available to save if the underlying hardware placed the metadata directly into the {\small \texttt{xdp\_buff}} during DMA.  With the dataset from the stateful tests, that could provide an addition 5\% throughput in the Type 2 Hints with 4 queues test.
+\begin{figure}[h]
+\includegraphics[width=3.31in]{xdp-projected-perf.png}
+\caption{Projected Performance with Inline Metadata}
+\label{xdp-projected-performance}
+\end{figure}
+As seen in Figure \ref{xdp-projected-performance}, extrapolation can be done by breaking down cycle counts for the stateful L4 LB tests.  Observing the number of cycles being spent in the i40e driver to synthesize the metadata, and the subsequent {\small \texttt{memcpy()’s}} of information into the {\small \texttt{xdp\_buff}} metadata payload, cycles are available to save if the underlying hardware placed the metadata directly into the {\small \texttt{xdp\_buff}} during DMA.  With the dataset from the stateful tests, that could provide an addition 6-7\% throughput in the Type 2 Hints with 4 queues test.
 
 \section{Future Application Research}
 Given the current challenges of little to no gain in performance using Type 2 hints with XDP applications with stateful tracking, additional applications should be considered.  Distributed Denial of Service (DDoS) attacks are very effectively mitigated using XDP, since there is no state tracking outside of blacklist (or whitelist) ranges to drop.  The XDP application itself does not require maintenance of the DDoS blacklist maps, and only requires lookups to decide the packet action, where stateful trackers will also change and update maps.
@@ -117,7 +123,77 @@ At NetDev 2.2, that work explored changes to LLVM and the entire toolchain to in
 With the recently-added BPF Type Format (BTF) to the Linux kernel \cite{btf-patches-2018}, this tooling is now mostly in place.  This allows different metadata structures to be defined through the BTF framework.  However, this is just the top half of the solution.
 \newline
 \newline
-What is needed to finish this tooling is intercepting the BTF structures defined for the requested metadata, and pass that into a driver to program the underlying hardware.  Preliminary work being done by Mellanox (citation needed) is showing progress in this space.  To get to a truly flexible model where an XDP application can request metadata and then use what a driver provides will require this BTF framework to evolve and mature.
+
+\section{XDP Metadata User API}
+Adding support to XDP meta data to be passed from a driver to a user XDP program is as easy as filling the headroom part of each Rx page/buffer with meta data fields and adjusting the meta data pointer accordingly. Then the user space program just accesses the \small{\texttt{xdp->data\_meta}} field.  For example:
+\begin{itemize}
+	\item Driver on XDP Rx packet:
+	\newline
+	{\scriptsize \texttt{xdp.data\_meta  = xdp->data - sizeof(meta\_data);}}
+	{\scriptsize \texttt{*xdp.data\_meta = meta\_data;}}
+	\newline
+	\item User space XDP program:
+	\newline
+	{\scriptsize \texttt{meta\_data = (struct meta\_data*)(long)ctx->data\_meta;}}
+\end{itemize}
+
+The problem with such approach is that the XDP program needs to know the type of \small{\texttt{struct meta\_data}} which will be written by a driver/hardware, and we would want to keep generic XDP programs to work with multiple NICs.
+\newline
+\newline
+In order to keep a generic XDP programs and yet preserve driver and XDP program max performance we must satisfy some requirements:
+\begin{itemize}
+	\item Generic Meta data types, same xdp program can work with different drivers that support same subset of meta data types.
+	\item Dynamic meta data settings, in order to work with the minimal set of metadata(s) in a XDP program, XDP program will request from the driver to provide only the required meta data. \textsubscript{* For maximum performance, driver/HW will need to only}
+	\textsubscript{copy the required metadata fields to the meta data buffer, and not more.}
+	\item User space must know how to access each meta data field with direct access, no lookup and preferably no checking if the meta data was actually set by the driver.
+\end{itemize}
+
+\subsection{Suggested Solutions}
+
+\begin{itemize}
+	\item Well known XDP meta data types \cite{mlx-rx-accel-patches-2018} \cite{mlx-xdp-meta-patches-2018}, defined by the kernel as enum (flag) and each will have a well-known type(enum) size and format.
+
+	\begin{itemize}
+		\item A program can request any subset of well-known meta data fields from driver
+		\item The driver will fill only the requested meta data fields into the meta data buffer in a pre-defined order (ascending order according to the requested meta data enums)
+		\item A pre-known order is required so the XDP program will know how to read (format) and where to find (offset) the meta data fields, without the need for type checking or lookups.
+	\end{itemize}
+	A well-known meta data field can be packet hash (32 bit hash, u8 type), VLAN (16 bit), flow mark (32 bit), csum complete (16 bit), etc. 
+	\newline
+	\newline
+	The driver and the XDP program will maintain a global "offset array", an array that defines which meta data is present (requested by the program).  It will also know where (which offset), enabling the driver and the XDP program to always agree on where to write or read a specific meta data field.  For example:
+	\newline
+	{\scriptsize \texttt{flow\_mark = xdp->data\_meta + offset\_array[XDP\_META\_FLOW\_MARK];}}
+	\newline
+	One major problem with this approach is the need to have a well defined meta data fields, managed by the kernel XDP UAPI, which will not easily allow vendor specific fields to be passed by driver or HW to XDP programs without the need to expose them to the kernel first.
+
+\item BTF: BPF Type Format \cite{btf-patches-2018}
+	The driver/FW/HW can report a BTF definition of the meta data structure that will fill the xdp meta data buffer. A BTF will be returned in C-header format, as proposed by Alexei Starovoitov and Daniel Borkmann \cite{mlx-rx-infra-patches-2018} below :
+	\begin{itemize}
+		\item A new query as in XDP\_QUERY\_META\_BTF is likely required for user space, implemented in \small{\texttt{ndo\_bpf}} callback and then exported e.g. via the bpf(2) system call, or netlink such that bpftool can generate BTF -> C from there for the program to include later in compilation.
+		\item Driver+firmware keep layout of the metadata in BTF format
+		\item \small{\texttt{'bpftool read-metadata-desc eth0 > md\_desc.h'}} command will query the driver and generate normal C header file based on BTF in the given NIC
+		\item User does \small{\texttt{\#include "md\_desc.h"}} and eBPF program can access \small{\texttt{md->csum}} or \small{\texttt{md->hash}} with direct single load out of metadata area in front of the packet
+		\item LLVM compiles eBPF program and records how program is doing this \small{\texttt{md->csum}} accesses in BTF format as well (the compiler will be keeping such records for \small{\texttt{\_\_sk\_buff}} and all other structs too, but that's separate discussion)
+		\item During \small{\texttt{sys\_bpf(prog\_load)}} the kernel checks (via supplied BTF) that the way the program accesses metadata (and other structs) matches BTF from the driver, so no surprises if driver+firmware got updated, but program is not recompiled.
+		\item Every NIC can have their own layout of metadata and its own meaning of the fields, but would be good to standardize at least a few common fields like hash
+	\end{itemize}
+  
+Pros: of BTF approach compared to offsets approach
+1. Meta data generic, allows vendor specific offloads without the need for
+kernel support.
+2. Meta data access is optimized for compile time rather than using offsets at
+run time.
+
+Cons:
+1. Recompiling the XDP program per machine, interface type, driver version, FW
+version .. 
+2. Standardizing some fields is up to naming conventions of fields between the
+different vendors.
+3. It will be impossible to compile same xdp program on two different NIC vendors
+which is using filed 1 of vendor 1 and field 2 of vendor 2.
+
+\end{itemize}
 
 \section{Conclusion}
 Initial thoughts whether or not XDP could benefit from HW-generated metadata in real-world applications are proven that this is the case.  Utilizing hardware, especially as it becomes smarter and more flexible, will continue pushing XDP’s performance envelope.  In the span of a year, this has moved from a purely theoretical hope of improvement, to showing it can help in real-world applications.  The next steps needed to make this part of the XDP core is the ability to flexibly program the driver and hardware using the BTF framework.  And as hardware capabilities allow the DMA of metadata as part of the packet payloads, then more XDP applications will benefit from performance gains across the board.
@@ -133,5 +209,8 @@ Peter Waskiewicz Jr (PJ) is a Senior Linux Kernel Engineer in the Networking Div
 \newline
 \newline
 Neerav Parikh is a Software Architect with Intel's Connectivity Group focusing on Ethernet Networking Software. He has worked on Intel's ixgbe and i40e Linux device drivers, focusing on features related to FCoE, DCB, and QoS. Prior to joining Intel, Neerav worked as a Technical Architect enabling SAS/SATA/FC-based Storage software products.
+\newline
+\newline
+Saeed Mahameed is a Staff Software Engineer at Mellanox Technologies, working on the Mellanox network drivers, and various aspects of the Linux Kernel Network Stack.
 
 \end{document}
