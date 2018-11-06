@@ -179,20 +179,84 @@ In order to keep a generic XDP programs and yet preserve driver and XDP program 
 		\item Every NIC can have their own layout of metadata and its own meaning of the fields, but would be good to standardize at least a few common fields like hash
 	\end{itemize}
   
-Pros: of BTF approach compared to offsets approach
-1. Meta data generic, allows vendor specific offloads without the need for
-kernel support.
-2. Meta data access is optimized for compile time rather than using offsets at
-run time.
+\subsubsection{Pros of BTF approach compared to offsets approach:}
+	\begin{itemize}
+		\item Meta data generic, allows vendor specific offloads without the need for kernel support.
+		\item Meta data access is optimized for compile time rather than using offsets at run time.
+	\end{itemize}
 
-Cons:
-1. Recompiling the XDP program per machine, interface type, driver version, FW
-version .. 
-2. Standardizing some fields is up to naming conventions of fields between the
-different vendors.
-3. It will be impossible to compile same xdp program on two different NIC vendors
-which is using filed 1 of vendor 1 and field 2 of vendor 2.
+\subsubsection{Cons of BTF approach compared to offsets approach:}
+	\begin{itemize}
+		\item Recompiling the XDP program per machine, inteface type, driver version, FW version, etc.
+		\item Standardizing some fields is up to naming conventions of fields between the different vendors
+		\item It will be impossible to compile same XDP program on two different NIC vendors which is using field 1 of vendor 1 and field 2 of vendor 2
+	\end{itemize}
 
+\end{itemize}
+
+\section{Case study, performance testing using hardware flow mark}
+
+Patchset \cite{mlx-xdp-meta-patches-2018} was tested with a modified version of \small{\texttt{xdp\_tx\_iptunnel}} \cite{xdp-tx-iptunnel-2016} \cite{mlx-xdp-tx-iptunnel-2018}. This sample is doing a simple packet processing to match Rx packets against a pre-configured IPv4/6 address and a destionation UDP/TCP port (VIP) (service virtual IP and port). If the VIP is found in the xdp program tunnels map, encapsulate the Rx packet with a IPv4/6 tunnel header and send it back to wire with \small{\texttt{XDP\_TX}}.
+\newline
+\newline
+The simple modification to the XDP program:
+\begin{itemize}
+	\item Setup a TC rule to mark packets with the well-known VIP (destination IP protocol and destination port) with a unique flow mark
+	\item Maintain an extra map (Flow mark \small{\texttt{->}} tunnel) (flow2tnl) similar to (VIP \small{\texttt{->}} tunnel)
+	\item Accelerate packet and tunnel lookup with the flow mark:
+	\newline
+		{\scriptsize \texttt{tnl = bpf\_map\_lookup\_elem(\&flow2tnl, \&xdp->meta\_data.flow\_mark);
+		\newline
+		if (!tnl) \{  /* slow path */
+		\newline
+		\indent vip = proccess\_packet(xdp->data)
+		\newline
+		\indent tnl = bpf\_map\_lookup\_elem(\&vip2tnl, vip);
+		\newline
+		\indent if (!tnl)
+		\newline
+		\indent \indent return XDP\_PASS;
+		\newline
+		\}
+		\newline
+		encap(tnl, xdp->data);
+		return XDP\_TX;
+		}}
+\end{itemize}
+
+\subsection{Performance numbers}
+
+\begin{figure}[h]
+\includegraphics[width=3.31in]{mlx-xdp-perf.png}
+\caption{Performance with Packet Processing Bypass}
+\label{mlx-xdp-perf}
+\end{figure}
+
+From performance testing as seen in \ref{mlx-xdp-perf}, just by skipping the whole packet processing, with 1 CPU core we see almost 130\% improvement of packets per second and it scales very well to 150\% packet per second with 8 cpu cores.
+\newline
+\newline
+The performance improvement is expected to be much higher for applications that are not doing any header rewrite or touching the packet data, for example:
+
+\begin{itemize}
+	\item Traffic classification, DDoS prevention apps, implement white/black list flow marks
+	\item VLAN filters, VLAN striping, use hardware offloaded VLAN
+	\item Load balancing, CPU map redirect, using the hardware hash
+	\item Populate SKB fields using meta data fields
+\end{itemize}
+
+\section{XDP program chaining, Meta data placement in the XDP buffer}
+
+XDP meta data chaining is simply supported by the XDP programs via \small{\texttt{bpf\_xdp\_adjust\_meta}} and one program will pass through the XDP meta data to the next by simply not adjusting or overwriting the XDP meta data buffer.
+\newline
+\newline
+The XDP meta data points to \small{\texttt{xdp->data - sizeof(meta\_data)}} as set by the driver. One problem with having the meta data fields sitting exactly before the actual packet buffer (\small{\texttt{xdp->data}}) is when \small{\texttt{bpf\_xdp\_adjust\_head}} is required (header rewrite), at such point to avoid overwriting the meta Fields, moving meta data fields is required, and in some cases this will cancel any performance benefit coming from the meta data fields due to the \small{\texttt{memcpy()}}.
+
+\begin{itemize}
+	\item Solution 1: Invalidate meta data once consumed and before header rewrite \small{\texttt{bpf\_xdp\_adjust\_meta(xdp, sizeof(meta\_data));}}
+	\newline
+	The problem with this is this will break meta data chaining to next programs.
+
+	\item Solution 2: Place meta data starting at \small{\texttt{xdp\_buff.data\_hard\_start}} to and allow as much headroom as possible for \small{\texttt{bpf\_xdp\_adjust\_head}} without worrying too much about overwriting the XDP meta data fields. This will demand modifying the XDP kernel verifier and \small{\texttt{xdp\_buff}} memory layout.
 \end{itemize}
 
 \section{Conclusion}
